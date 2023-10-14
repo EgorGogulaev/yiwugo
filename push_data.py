@@ -108,8 +108,9 @@ def push_goods():
         Способ выбора модификаций товара на витрине: 0 — по наименованиям артикулов, 1 — по значениям характеристик. Значение по умолчанию — 0.
     
     """
-    
+
     BASE_URL = 'https://chinazar.com/api.php/'
+    
     method = "shop.product.add"
 
     FULL_URL = f"{BASE_URL}{method}?access_token={access_token}"
