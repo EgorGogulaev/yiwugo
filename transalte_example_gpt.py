@@ -1,67 +1,97 @@
-import g4f
 import json
 
 
-class TurboGPT:
-    """ Класс представляющий собой чат GPT 3.5 turbo """
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker
 
-    def __init__(self):
-        """ Инициализатор класса """
-        self.__model: str = 'gpt-3.5-turbo'
-        self.text_answer = ""
+import openai
 
-    def send_request(self, prompt: str, role: str = 'user'):
-        """
-        Посылает запрос провайдеру (источнику халявного gpt).
+import mapping_chinagoods as mc
 
-        role: по умолчанию user
-        content: представляет собой текст запроса
+def rephrase_product_name(property_: str, type_property: str, api_key: str):
+    openai.api_key = api_key
+    # initial_prompt = """
+    #         Чат, помоги пожалуйста, я собрал карточки товаров с китайского сайта и мне нужно перевести их названия.
+    #         Названия продуктов составлены неграмотно, мне нужно получить сокращенную интерпретацию наименования товара, оставив только название.
+    #         После, нужно перевести название на русский язык, учитывая падежи, сколнения и наклонения.
+    #         Дословного перевода не требуется, главное смысл.
+    #         Избегай прилагательные, которые не будут способствовать продажам(например: "простой/простая")
+    #         Вот пример:
+    #         Ввод:
+    #         Blowing bubbles nano adhesive strong nano double-sided tape transparent non-trace waterproof a large number of wholesale acrylic double-sided tape
+    #
+    #         Вывод:
+    #         Прочный акриловый двухсторонний скотч
+    #         """
 
-        Рабочие провайдеры:
-        - Aichat (ограниченное количество запросов)
-        - Ails (Читает хорошо, обязательно уточнять про то что ответ должен быть на русском, стрим)
-        """
-        response = g4f.ChatCompletion.create(
-            model=self.__model,
-            provider=g4f.Provider.Ails,
-            messages=[{'role': role, 'content': prompt}],
-            stream=True
-        )
-        for message in response:
-            self.text_answer += message
-    
-    def processing_gpt_answer(self) -> dict:
-        self.text_answer = self.text_answer.replace('\n', '')
-        dict_info = json.loads(self.text_answer)
-        return dict_info
+    if type_property == "name":
+        prompt = f"Прошу перевести следующее наименование товара с английского язка на русский язык, сделав сокращённую интерпретацию его смысла, чтобы избежать повторений и гарантировать правильное использование падежей, склонений и наклонений. Название товара должно быть понятным и грамотным, без дословного перевода. Вот текст наименования на английском языке: {property_}"
+    elif type_property == "description":
+        prompt = f"Прошу перевести следующее описание товара с иностранного языка на русский язык: {property_}"
+    else:
+        prompt = f"Прошу перевести следующую информацию о названии материала товара с иностранного языка на русский язык: {property_}"
+
+
+    response = openai.ChatCompletion.create(
+        model="gpt-3.5-turbo",  # Укажите чат-модель, которую вы хотите использовать
+        messages=[
+            # {"role": "system", "content": initial_prompt},
+            {"role": "user", "content": prompt}
+        ]
+    )
+
+    rephrased_product_name = response['choices'][0]['message']['content'].split('.')[0]
+
+
+    return rephrased_product_name
+
+def translate_product_info(api_key: str):
+    engine = create_engine("sqlite:///yiwugo.db")
+    errors = []
+    with sessionmaker(bind=engine)() as session:
+        products = session.query(mc.Product).all()
+
+        for idx, product in enumerate(products):
+            print(idx + 1)
+            try:
+                name = product.name
+                description = product.description
+                material = product.material
+
+                tr_name = rephrase_product_name(property_=name, type_property="name", api_key=api_key)
+                tr_description = rephrase_product_name(property_=description, type_property="description", api_key=api_key)
+                tr_material = rephrase_product_name(property_=material, type_property="material", api_key=api_key)
+
+
+                new_row = mc.TranslatedProduct(
+                    id=product.id,
+                    site_id=product.site_id,
+                    category=product.category,
+                    sub_category=product.sub_category,
+                    name=tr_name,
+                    price=product.price,
+                    description=tr_description,
+                    patterns=product.patterns,
+                    colours=product.colours,
+                    sort=product.sort,
+                    place_of_origin=product.place_of_origin,
+                    material=tr_material,
+                    packing_qty=product.packing_qty,
+                    meas=product.meas,
+                    cbm=product.cbm,
+                    gw=product.gw,
+                    nw=product.nw,
+                )
+
+                session.add(new_row)
+                session.commit()
+            except Exception as ex:
+                print(ex)
+                errors.append(product.id)
 
 
 
 
 if __name__ == '__main__':
-
-    # Запускать этот файл при тестах, не запускать при релизе. Читает первую статью в журнале и посылет запрос в gpt
-
-    import PyPDF2
-    import os
-
-    BASE_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
-
-    with open(BASE_DIR + f'/data/test.pdf', 'rb') as file:
-
-        pdf_reader = PyPDF2.PdfReader(file)
-        page = pdf_reader.pages[26]
-        content = page.extract_text()
-
-        # with open(BASE_DIR + f'/data/text.txt', 'w') as text:
-        #     text.write(content)
-
-        prompt_text = """Я даю тебе текст научной статьи. Мне нужно из данного текста извлечь: 1) Название статьи; 2) Аннотацию статьи;
-        3) Ключевые слова статьи; 4) Авторов статьи, перечисленных через запятую, если авторов несколько 5) Универистет работы авторов 
-        также через запятую, если авторов больше одного 6) email автора 7) Идентификатор doi; 8) УДК статьи. Всю инфрмацию представь в виде словаря {} - python, 
-        где извлеченный текст - это значения, а ключи название того, что ищем. Очень важно: не меняй оргинальный текст, сохраняй текст такой
-        какой я даю тебе его. В ответе предоставь мне только словарь, не нужно писать ничего от себя. Результат в виде строки, в которой лежит словарь. 
-        """
-        gpt = TurboGPT()
-        gpt.send_request(prompt=f"{prompt_text} Текст для поиска следующий: {content}")
-        gpt.processing_gpt_answer()
+    api_key = ""
+    translate_product_info(api_key)
