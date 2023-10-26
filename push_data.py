@@ -209,6 +209,7 @@ def create_main_or_sub_category(category_name: str, token: str, parent_id: int=0
     JSON = response.json()
     return JSON
 
+
 def main():
     engine = create_engine("sqlite:///yiwugo.db")
     token = "cf5dabdda340010353432323d9c490ef"
@@ -236,6 +237,7 @@ def main():
             else:
                 sub_category_id = structure[category][category_id][sub_category]
 
+    return structure
             # Блок выгрузки товара TODO
 
 
